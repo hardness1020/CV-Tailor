@@ -495,7 +495,9 @@ export default function ArtifactDetailPage() {
               <Card className="p-6">
                 <h3 className="text-base font-semibold text-gray-900 mb-4">Key Achievements</h3>
                 <InlineEditableList
-                  items={artifact.enrichedAchievements || []}
+                  items={(artifact.enrichedAchievements || []).map((a: unknown) =>
+                    typeof a === 'string' ? a : (a as { text: string }).text
+                  )}
                   onSave={handleSaveAchievements}
                   placeholder="Add achievements..."
                 />

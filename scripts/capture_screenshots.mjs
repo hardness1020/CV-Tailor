@@ -88,6 +88,15 @@ async function main() {
   // 3. Capture authenticated pages
   await capture("dashboard", "/dashboard");
   await capture("artifacts", "/artifacts");
+
+  // Artifact detail — use the first artifact
+  const artifactId = await getFirstArtifactId(auth.access);
+  if (artifactId) {
+    await capture("artifact-detail", `/artifacts/${artifactId}`);
+  } else {
+    console.log("  WARNING: No artifacts found, skipping artifact-detail screenshot");
+  }
+
   await capture("generation-create", "/generations/create");
 
   // Bullet review — use the bullets_ready generation
@@ -100,6 +109,16 @@ async function main() {
 
   await browser.close();
   console.log("\nDone! Screenshots saved to docs/screenshots/");
+}
+
+async function getFirstArtifactId(token) {
+  const res = await fetch(`${API_URL}/api/v1/artifacts/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const items = data.results || data;
+  return items[0]?.id || null;
 }
 
 async function getBulletsReadyId(token) {

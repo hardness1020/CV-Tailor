@@ -26,11 +26,8 @@ Built with a Django REST API backend and React frontend, the system features a l
 | **Dashboard** — Stats cards, quick actions, and recent artifacts at a glance. | **Artifacts** — Grid of enriched work artifacts with technology badges. |
 | ![Generation](docs/screenshots/generation-create.png) | ![Bullet Review](docs/screenshots/bullet-review.png) |
 | **Generate** — Paste a job description and select relevant artifacts. | **Bullet Review** — Approve, edit, or regenerate individual bullets with quality scores. |
-
-| |
-|---|
-| ![Login](docs/screenshots/login.png) |
-| **Login** — Clean auth form with Google OAuth integration. |
+| ![Artifact Detail](docs/screenshots/artifact-detail.png) | ![Login](docs/screenshots/login.png) |
+| **Artifact Detail** — Review enriched content, technologies, achievements, and evidence sources with inline editing. | **Login** — Clean auth form with Google OAuth integration. |
 
 ## Key Features
 
