@@ -56,12 +56,7 @@ Built with a Django REST API backend and React frontend, the system features a l
 ## Architecture
 
 ```
-                       GitHub Actions (CI/CD)
-                   ┌─────────────┬──────────────┐
-                   │ lint/test   │ build/deploy │
-                   └──────┬──────┴──────┬───────┘
-                          │             │
-        ┌─────────────────▼─┐   ┌───────▼──────────────────────┐
+        ┌───────────────────┐   ┌──────────────────────────────┐
         │  S3 + CloudFront  │   │  ECS Fargate                 │
         │  (static hosting) │   │  (containers)                │
         └─────────┬─────────┘   └───────┬──────────────────────┘
@@ -131,9 +126,14 @@ CV-Tailor/
 ├── frontend/                   # React 18 + TypeScript
 │   └── src/
 │       ├── components/         # UI components (Radix UI + Tailwind)
-│       ├── pages/              # Route pages
-│       ├── stores/             # Zustand state management
-│       └── api/                # Axios API client
+│       │   ├── ui/             # 30 reusable primitives (Button, Modal, Tabs...)
+│       │   └── wizard/         # Multi-step artifact enrichment workflow
+│       ├── pages/              # 15 route pages
+│       ├── hooks/              # 13 custom React hooks
+│       ├── stores/             # 5 Zustand state stores
+│       ├── services/           # Axios API client + Google Auth
+│       ├── types/              # TypeScript interfaces
+│       └── utils/              # Helpers (formatting, error handling, theming)
 ├── terraform/                  # AWS infrastructure as code
 ├── scripts/                    # Deployment automation
 ├── docs/                       # Comprehensive documentation
@@ -150,12 +150,15 @@ CV-Tailor/
 | Layer | Technologies |
 |-------|-------------|
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Radix UI, Zustand, React Hook Form, Zod, Axios |
-| **Backend** | Django 4.2, Django REST Framework, Celery, LangChain, ReportLab, python-docx |
+| **Backend** | Django 4.2, Django REST Framework, Celery, Pydantic, ReportLab, python-docx |
 | **Database** | PostgreSQL 15, Redis 7.0 |
-| **AI/LLM** | OpenAI GPT-5 series, LangChain document processing |
+| **AI/LLM** | OpenAI GPT-5 series, LiteLLM (model abstraction), LangChain (document processing) |
+| **Doc Processing** | PyMuPDF, PyPDF2, Unstructured, BeautifulSoup4 |
 | **Auth** | JWT (SimpleJWT), Google OAuth (django-allauth) |
+| **Testing** | Django TestCase, Vitest, Testing Library |
+| **Monitoring** | Sentry, Prometheus, django-health-check |
 | **Infrastructure** | AWS ECS Fargate, RDS, ElastiCache, S3, CloudFront, ALB, Secrets Manager |
-| **DevOps** | Docker, Docker Compose, Terraform, GitHub Actions (6 workflows) |
+| **DevOps** | Docker, Docker Compose, Terraform |
 | **Package Mgmt** | uv (Python), npm (Node.js) |
 
 ## Development Methodology
@@ -178,7 +181,6 @@ Initiate → Discovery → Specify → Decide → Plan → Red → Green → Ref
 | Unit Test Execution | ~63 seconds (with proper mocking) |
 | API Endpoints | 100+ |
 | React Components | 87 |
-| CI/CD Workflows | 6 |
 | Governance Rule Files | 12 |
 
 ### Key Practices
