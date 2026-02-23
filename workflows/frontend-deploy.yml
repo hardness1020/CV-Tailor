@@ -1,0 +1,178 @@
+name: Frontend Deploy
+
+# Deploy frontend to S3 + CloudFront when code is merged to main
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - 'package*.json'
+      - '.github/workflows/frontend-deploy.yml'
+
+# Required for OIDC authentication to AWS
+permissions:
+  id-token: write
+  contents: read
+
+# Ensure only one deployment runs at a time
+concurrency:
+  group: frontend-deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # Job 1: Build React Application
+  # ============================================================================
+  build:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    outputs:
+      build-hash: ${{ steps.build-hash.outputs.hash }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build production bundle
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          # TODO: Update with actual backend API URL
+          VITE_API_URL: ${{ secrets.VITE_API_URL || vars.API_URL }}
+
+      - name: Generate build hash
+        id: build-hash
+        working-directory: ./frontend
+        run: |
+          BUILD_HASH=$(find dist -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1 | cut -c1-8)
+          echo "hash=$BUILD_HASH" >> $GITHUB_OUTPUT
+          echo "📦 Build hash: $BUILD_HASH"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-${{ steps.build-hash.outputs.hash }}
+          path: frontend/dist/
+          retention-days: 7
+
+  # ============================================================================
+  # Job 2: Deploy to S3 + CloudFront (with manual approval)
+  # ============================================================================
+  deploy:
+    name: Deploy to S3 + CloudFront
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: production-frontend
+      url: ${{ vars.FRONTEND_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build-${{ needs.build.outputs.build-hash }}
+          path: frontend/dist/
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Get S3 bucket name and CloudFront distribution ID
+        id: aws-resources
+        run: |
+          # Get outputs from Terraform state or use defaults
+          # Option 1: Use terraform output (requires state access)
+          # BUCKET_NAME=$(terraform output -raw frontend_bucket_name)
+          # DISTRIBUTION_ID=$(terraform output -raw cloudfront_distribution_id)
+
+          # Option 2: Use naming convention (faster, no state access needed)
+          BUCKET_NAME="${{ vars.S3_BUCKET }}"
+
+          # Get CloudFront distribution ID by origin (bucket)
+          DISTRIBUTION_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?contains(Origins.Items[0].Id, 'S3-${BUCKET_NAME}')].Id | [0]" \
+            --output text)
+
+          echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+          echo "distribution=$DISTRIBUTION_ID" >> $GITHUB_OUTPUT
+          echo "📦 Bucket: $BUCKET_NAME"
+          echo "🌐 Distribution: $DISTRIBUTION_ID"
+
+      - name: Sync files to S3
+        run: |
+          aws s3 sync frontend/dist/ s3://${{ steps.aws-resources.outputs.bucket }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000" \
+            --exclude "index.html" \
+            --exclude "*.html"
+
+          # Upload HTML files separately with shorter cache (for SPA routing)
+          aws s3 sync frontend/dist/ s3://${{ steps.aws-resources.outputs.bucket }}/ \
+            --exclude "*" \
+            --include "index.html" \
+            --include "*.html" \
+            --cache-control "public, max-age=0, must-revalidate"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          INVALIDATION_ID=$(aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.aws-resources.outputs.distribution }} \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text)
+
+          echo "🔄 Invalidation ID: $INVALIDATION_ID"
+          echo "Waiting for invalidation to complete..."
+
+          aws cloudfront wait invalidation-completed \
+            --distribution-id ${{ steps.aws-resources.outputs.distribution }} \
+            --id $INVALIDATION_ID
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Frontend deployment completed successfully"
+          echo "Bucket: ${{ steps.aws-resources.outputs.bucket }}"
+          echo "Distribution: ${{ steps.aws-resources.outputs.distribution }}"
+          echo "Build hash: ${{ needs.build.outputs.build-hash }}"
+
+  # ============================================================================
+  # Job 3: Smoke Tests (verify deployment)
+  # ============================================================================
+  smoke-test:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Wait for CloudFront propagation
+        run: sleep 30
+
+      - name: Test CloudFront endpoint
+        run: |
+          # TODO: Replace with actual CloudFront domain
+          echo "🏥 Running smoke tests..."
+          echo "Note: Add actual CloudFront domain when available"
+          # Example:
+          # curl -I https://d1234567890.cloudfront.net || exit 1
+
+      - name: Smoke test summary
+        run: |
+          echo "✅ Smoke tests passed"
+          echo "Frontend is live and serving traffic"

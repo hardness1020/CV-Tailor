@@ -1,0 +1,43 @@
+# Python virtual environment (created inside container)
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Environment variables (will be passed via env_file)
+.env
+
+# Database files
+*.db
+*.sqlite3
+
+# Static files (will be collected inside container)
+staticfiles/
+media/

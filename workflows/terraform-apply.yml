@@ -1,0 +1,116 @@
+name: Terraform Apply
+
+# Run on push to main branch when Terraform files change
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-*.yml'
+
+# Manual trigger option
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - production
+
+# Required for OIDC authentication to AWS
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    # Use GitHub environment for protection rules
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: https://console.aws.amazon.com/cloudwatch/home?region=${{ vars.AWS_REGION }}#dashboards
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ github.event.inputs.environment || 'production' }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+        working-directory: ./terraform
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ./terraform
+
+      - name: Terraform Plan
+        run: |
+          terraform plan \
+            -var-file=environments/${{ github.event.inputs.environment || 'production' }}.tfvars \
+            -out=tfplan
+        working-directory: ./terraform
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ./terraform
+
+      - name: Get Terraform Outputs
+        id: outputs
+        run: |
+          echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
+          echo "ecr_url=$(terraform output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
+          echo "dashboard_url=$(terraform output -raw dashboard_url)" >> $GITHUB_OUTPUT
+        working-directory: ./terraform
+
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Infrastructure Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **ALB DNS**: ${{ steps.outputs.outputs.alb_dns }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ECR Repository**: ${{ steps.outputs.outputs.ecr_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **CloudWatch Dashboard**: ${{ steps.outputs.outputs.dashboard_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Build and push Docker image to ECR" >> $GITHUB_STEP_SUMMARY
+          echo "2. Update ECS service to use new image" >> $GITHUB_STEP_SUMMARY
+          echo "3. Monitor deployment in CloudWatch Dashboard" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Terraform Apply Failed',
+              body: `Terraform apply failed for environment: ${{ github.event.inputs.environment || 'production' }}\n\nWorkflow: ${context.workflow}\nRun: ${context.runId}\n\nPlease investigate: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['infrastructure', 'terraform', 'urgent']
+            });

@@ -1,0 +1,222 @@
+name: Backend Tests
+
+# Run on pull requests that modify backend code
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/backend-*.yml'
+
+# Allow concurrent runs for different PRs, but cancel in-progress runs for same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Job 1: Code Quality Checks (Linting)
+  # ============================================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Check code formatting with Black
+        working-directory: ./backend
+        run: |
+          black --check --diff .
+
+      - name: Check import sorting with isort
+        working-directory: ./backend
+        run: |
+          isort --check-only --diff .
+
+      - name: Lint with flake8
+        working-directory: ./backend
+        run: |
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Check for code style issues (warnings only)
+          flake8 . --count --max-line-length=88 --extend-ignore=E203,W503 --statistics
+
+  # ============================================================================
+  # Job 2: Type Checking
+  # ============================================================================
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Type check with mypy
+        working-directory: ./backend
+        run: |
+          mypy .
+
+  # ============================================================================
+  # Job 3: Unit Tests (Fast)
+  # ============================================================================
+  test-unit:
+    name: Unit Tests (Fast)
+    runs-on: ubuntu-latest
+
+    # Use service containers for PostgreSQL and Redis
+    # These run alongside the job in isolated containers
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: cv_tailor_test
+          POSTGRES_USER: cv_tailor_user
+          POSTGRES_PASSWORD: cv_tailor_test_password
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Create .env file for testing
+        working-directory: ./backend
+        run: |
+          cat > .env << EOF
+          # Django Settings
+          SECRET_KEY=test-secret-key-for-ci-only-not-secure
+          DEBUG=False
+          ALLOWED_HOSTS=localhost,127.0.0.1
+
+          # Database
+          DB_HOST=localhost
+          DB_PORT=5432
+          DB_NAME=cv_tailor_test
+          DB_USER=cv_tailor_user
+          DB_PASSWORD=cv_tailor_test_password
+
+          # Redis
+          CELERY_BROKER_URL=redis://localhost:6379/0
+          CELERY_RESULT_BACKEND=redis://localhost:6379/0
+
+          # AWS (use mocked/fake for tests)
+          AWS_ACCESS_KEY_ID=test
+          AWS_SECRET_ACCESS_KEY=test
+          AWS_STORAGE_BUCKET_NAME=test-bucket
+          AWS_S3_REGION_NAME=us-west-1
+
+          # OpenAI (tests should mock this)
+          OPENAI_API_KEY=sk-test-key-not-real
+
+          # GitHub (tests should mock this)
+          GITHUB_TOKEN=ghp_test_token_not_real
+          EOF
+
+      - name: Run database migrations
+        working-directory: ./backend
+        run: |
+          uv run python manage.py migrate --noinput
+
+      - name: Run fast unit tests
+        working-directory: ./backend
+        run: |
+          uv run python manage.py test \
+            accounts artifacts generation llm_services \
+            --tag=fast --tag=unit \
+            --keepdb \
+            --verbosity=2
+
+      - name: Upload coverage report (if tests pass)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/htmlcov/
+          retention-days: 7
+
+  # ============================================================================
+  # Summary Job (for branch protection)
+  # ============================================================================
+  tests-complete:
+    name: All Tests Complete
+    runs-on: ubuntu-latest
+    needs: [lint, type-check, test-unit]
+    if: always()
+
+    steps:
+      - name: Check all jobs succeeded
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]]; then
+            echo "❌ Linting failed"
+            exit 1
+          fi
+          if [[ "${{ needs.type-check.result }}" != "success" ]]; then
+            echo "❌ Type checking failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test-unit.result }}" != "success" ]]; then
+            echo "❌ Unit tests failed"
+            exit 1
+          fi
+          echo "✅ All tests passed!"

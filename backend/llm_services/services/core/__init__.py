@@ -1,0 +1,1 @@
+"""Service Layer - High-level services (LLM, Embedding, Document Processing)."""

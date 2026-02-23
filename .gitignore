@@ -1,0 +1,110 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+uv.lock
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+rules/.env
+*.key
+*.pem
+*.cert
+*.p12
+.env.production
+
+# Database
+*.sqlite3
+*.db
+db.sqlite3
+dump.rdb
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Media files (uploaded content)
+media/
+uploads/
+
+# Django static files
+staticfiles/
+*/staticfiles/
+
+# Cache
+.cache/
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Claude
+.claude/
+.mcp.json
+
+# test
+.playwright-mcp/
+
+idea.md
+
+# Deployment secrets and outputs
+terraform_outputs.txt
+terraform-outputs.json
+terraform/terraform-outputs.json
+secrets-*.json
+*.tfplan
+tfplan
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Backup files
+*.backup
+Dockerfile.backup
